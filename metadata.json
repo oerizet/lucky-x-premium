@@ -1,0 +1,16 @@
+
+{
+  "name": "Lucky X Premium",
+  "description": "High-performance IPTV suite with XCIPTV-style interface, M3U/Xtream support, and custom playlist creation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "androidPermissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.WAKE_LOCK",
+    "android.permission.RECEIVE_BOOT_COMPLETED"
+  ]
+}

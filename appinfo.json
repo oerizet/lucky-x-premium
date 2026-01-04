@@ -1,0 +1,17 @@
+{
+    "id": "com.luckyx.premium",
+    "version": "2.5.0",
+    "vendor": "Lucky X Media",
+    "type": "web",
+    "main": "index.html",
+    "title": "Lucky X Premium",
+    "icon": "icon.png",
+    "largeIcon": "largeIcon.png",
+    "bgColor": "#050505",
+    "iconColor": "#f59e0b",
+    "resolution": "1920x1080",
+    "accessibility": {
+        "supportsAudioGuidance": true
+    },
+    "uiRevision": 2
+}
