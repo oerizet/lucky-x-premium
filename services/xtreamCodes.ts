@@ -8,13 +8,6 @@ export interface XtreamCredentials {
   proxyUrl?: string; 
 }
 
-const DEFAULT_PROXIES = [
-  'https://corsproxy.io/?',
-  'https://api.allorigins.win/raw?url=',
-  'https://thingproxy.freeboard.io/fetch/',
-  'https://api.codetabs.com/v1/proxy?quest='
-];
-
 const safeDecode = (str: string) => {
   try {
     return atob(str);
@@ -23,55 +16,25 @@ const safeDecode = (str: string) => {
   }
 };
 
-const fetchWithFallback = async (targetUrl: string, userProxy?: string): Promise<Response> => {
-  const isTargetInsecure = targetUrl.startsWith('http://');
-  const isAppSecure = window.location.protocol === 'https:';
-  
-  const attempts = [
-    { name: 'Direct', proxy: null },
-    ...(userProxy ? [{ name: 'Custom Proxy', proxy: userProxy }] : []),
-    ...DEFAULT_PROXIES.map((p, i) => ({ name: `Proxy ${i + 1}`, proxy: p }))
-  ];
+const directFetch = async (targetUrl: string): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8-second timeout
 
-  let errors: string[] = [];
-
-  for (const attempt of attempts) {
-    try {
-      let finalUrl = targetUrl;
-      if (attempt.proxy) {
-        finalUrl = attempt.proxy.includes('?') 
-          ? `${attempt.proxy}${encodeURIComponent(targetUrl)}` 
-          : `${attempt.proxy}${targetUrl}`;
-      } else if (isAppSecure && isTargetInsecure) {
-        errors.push("Direct: Blocked (Mixed Content)");
-        continue;
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
       }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-      const response = await fetch(finalUrl, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        }
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok || response.status === 401) {
-        return response;
-      }
-      
-      errors.push(`${attempt.name}: Error ${response.status}`);
-    } catch (err: any) {
-      errors.push(`${attempt.name}: ${err.message}`);
-    }
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
   }
-
-  throw new Error(`All connection routes failed:\n${errors.join('\n')}`);
 };
 
 export const fetchXtreamData = async (creds: XtreamCredentials): Promise<Channel[]> => {
@@ -84,25 +47,31 @@ export const fetchXtreamData = async (creds: XtreamCredentials): Promise<Channel
   
   try {
     const loginUrl = `${baseUrl}/player_api.php?${authParams}`;
-    const loginRes = await fetchWithFallback(loginUrl, creds.proxyUrl);
+    const loginRes = await directFetch(loginUrl);
 
-    if (loginRes.status === 403) {
-      throw new Error('Access Blocked (403): Provider blocked browser/proxy access.');
+    if (!loginRes.ok) {
+        if (loginRes.status === 401) throw new Error('Login Failed: Check your credentials.');
+        if (loginRes.status === 403) throw new Error('Access Blocked (403): Provider may have blocked browser/proxy access.');
+        throw new Error(`Login Error: Server responded with status ${loginRes.status}`);
     }
 
-    const loginText = await loginRes.text();
-    const loginData = JSON.parse(loginText);
+    const loginData = await loginRes.json();
 
     if (!loginData.user_info || (loginData.user_info.auth === 0 && !loginData.user_info.username)) {
-      throw new Error('Login Failed: Check your credentials.');
+      throw new Error('Login Failed: Invalid response from server.');
     }
 
     const liveUrl = `${baseUrl}/player_api.php?${authParams}&action=get_live_streams`;
-    const liveRes = await fetchWithFallback(liveUrl, creds.proxyUrl);
+    const liveRes = await directFetch(liveUrl);
+    
+    if (!liveRes.ok) {
+        throw new Error(`Channel Fetch Error: Server responded with status ${liveRes.status}`);
+    }
+
     const liveStreams = await liveRes.json();
 
     if (!Array.isArray(liveStreams)) {
-      throw new Error('Subscription Error: No channels found.');
+      throw new Error('Subscription Error: No channels found or invalid response.');
     }
 
     return liveStreams.map((stream: any) => ({
@@ -117,6 +86,7 @@ export const fetchXtreamData = async (creds: XtreamCredentials): Promise<Channel
     }));
 
   } catch (error: any) {
+    console.error("Xtream Fetch Error:", error);
     throw error;
   }
 };
@@ -129,7 +99,12 @@ export const fetchChannelEPG = async (creds: XtreamCredentials, streamId: string
   const epgUrl = `${baseUrl}/player_api.php?${authParams}&action=get_short_epg&stream_id=${streamId}`;
 
   try {
-    const response = await fetchWithFallback(epgUrl, creds.proxyUrl);
+    const response = await directFetch(epgUrl);
+    
+    if (!response.ok) {
+        throw new Error(`EPG Fetch Error: Server responded with status ${response.status}`);
+    }
+
     const data = await response.json();
     
     if (data && data.epg_listings) {
